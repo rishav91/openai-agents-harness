@@ -11,6 +11,7 @@ Each ADR: context → decision → alternatives → consequences.
 3. **Coordinator aggregates.** There is no aggregator subagent (`ADR-002`).
 4. **Fail closed.** Incomplete brief, dead executor, or cost bound → no recommendation.
 5. **Host snapshot is the file SoR after teardown.** OpenAI session items are not workspace files (`ADR-006`).
+6. **Telemetry is inspect-only.** OTel/Jaeger do not replace the archive, allocator, or cost cancel (`ADR-007`).
 
 ## 2. High-level
 
@@ -30,6 +31,7 @@ flowchart LR
   op --> alloc
   alloc -->|allocation.json on success| ws
   op -->|P1 copy on any terminal outcome| arch["runs/run_id/"]
+  op -->|OTLP traces| jaeger[Jaeger UI]
 ```
 
 OpenAI runs the Codex harness (model loop, compaction, subagents). This machine runs the CLI and a Docker environment. The executor makes **outbound** connections only (`api.openai.com`, `wss://codex-cloud-environments.chatgpt.com`).
@@ -44,6 +46,7 @@ OpenAI runs the Codex harness (model loop, compaction, subagents). This machine 
 | **`codex exec-server`** | Inside container; `CODEX_API_KEY` = environment key; `--remote` + `--environment-id` from session |
 | **Allocator** | Pure function in the CLI process (host), not in the sandbox |
 | **Run archive (P1)** | Immutable host directory; see [§ Run archive](#10-run-archive) |
+| **Jaeger (P1)** | Local trace UI; CLI exports OTLP when endpoint is set ([§ Observability](#14-observability)) |
 
 No database. No extra app server. Scale: **1** session (`NFR-1.1`). P0 may read the live mount only; P1 copies out before teardown.
 
@@ -340,6 +343,20 @@ Degradation: there is no “best-effort allocation” from partial prose. Partia
 + Replay and inspect cancel after teardown; tiny surface.  
 − Folders accumulate; spec changes need `allocation_spec`; not searchable.
 
+### ADR-007 — OTel + Jaeger (not Prometheus scrape)
+
+**Status:** Accepted (P1 traces; P2 Prometheus)
+
+**Context:** Operator wants to inspect each run. CLI is a job. Prometheus scrape dies with the process. OpenAI Agents traces are dashboard-only, not a public export API.
+
+**Decision:** Instrument the CLI with OpenTelemetry. Export OTLP to **Jaeger all-in-one** for the trace UI. If `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no exporter. Prometheus, if added, is P2 via a collector — never scrape the CLI.
+
+**Alternatives:** Grafana Tempo + Grafana — one UI for traces and later metrics; heavier for P1. Honeycomb/cloud — extra vendor. Prometheus Pushgateway — job metrics only, poor traces. Rely on OpenAI logs — no app-span timeline.
+
+**Consequences:**  
++ Inspect intake vs connect vs (later) cost-cancel in a real UI.  
+− Another Docker service; Jaeger is traces-only; metrics wait for P2.
+
 ## 13. Locked config names
 
 | Env | Required |
@@ -350,5 +367,21 @@ Degradation: there is no “best-effort allocation” from partial prose. Partia
 | `AGENT_MODEL` | yes |
 | `MAX_RESEARCH_COUNT` | optional, default 12 |
 | `RUNS_DIR` | P1 optional, default `./runs` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | P1 optional; e.g. `http://127.0.0.1:4318` |
+| `OTEL_SERVICE_NAME` | optional, default `equity-harness` |
 
-No code in this phase. Implement only after these docs are accepted.
+## 14. Observability
+
+P1. Home of `FR-6.*`.
+
+```text
+CLI  --OTLP HTTP-->  Jaeger :4318     UI :16686
+```
+
+**Spans (normative names):** `harness.run` (root) → `brief.intake` → `session.connect` (includes docker build/start) → later `turn.research`, `cost.guard`, `allocator`, `archive.write`.
+
+**Resource / attributes (allow):** `service.name`, `run_id`, `session_id`, `outcome`, `research_count`, `portfolio_count`, `AGENT_MODEL`, `cost_estimate_usd`, `cost_bound_usd`. **Forbid:** API keys (`NFR-3.2`).
+
+**Start UI:** `docker compose -f observability/docker-compose.yml up -d` then open `http://127.0.0.1:16686`. Search service `equity-harness`.
+
+Flush the tracer provider on process exit so a short CLI run still appears.

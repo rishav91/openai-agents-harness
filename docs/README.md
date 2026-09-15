@@ -24,7 +24,8 @@ A feature that skips a gate, trusts an LLM number as money, or softens the kill-
 - Tools: hosted `web_search`, `multi_agent`; subagents do **not** get function tools
 - Budget and cost bound: USD; cost bound is env-only (`COST_BOUND_USD`), cancel at 100% of estimate
 - Data residency: Agents API US-only; not ZDR-eligible
-- *Assumption:* P0 surface is CLI; Python 3 + official OpenAI SDK; `AGENT_MODEL` env (docs currently `gpt-6-astra`); `research_count` hard cap **12**; per-name allocation cap **35%**; P1 archives under `runs/<id>/` on the host (not OpenAI, not a database)
+- Observability: OpenTelemetry traces from the CLI; **Jaeger** UI to inspect them (`ADR-007`). Optional; no-op if OTLP endpoint unset. Prometheus scrape of the CLI is out (short-lived process)
+- *Assumption:* P0 surface is CLI; Python 3 + official OpenAI SDK; `AGENT_MODEL` env; `research_count` hard cap **12**; per-name allocation cap **35%**; P1 archives under `runs/<id>/` on the host (not OpenAI, not a database)
 
 ## Document map
 
@@ -32,7 +33,7 @@ A feature that skips a gate, trusts an LLM number as money, or softens the kill-
 |---|---|
 | [README.md](README.md) | Spine, stack, reading order |
 | [PRD.md](PRD.md) | Problem, scope, requirements, risks, phases |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime, flows, contracts, cost guard, run archive, ADRs |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime, flows, contracts, cost guard, run archive, observability, ADRs |
 
 ## Reading order
 

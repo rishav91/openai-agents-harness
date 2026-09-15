@@ -76,8 +76,8 @@ No other v1 use cases. Archive is teardown of UC-1, not a second product surface
 | Tier | In |
 |---|---|
 | P0 (MVP) | `FR-1.*`–`FR-4.*`, Docker executor, web search, multi-agent, deterministic allocator, cost cancel, CLI |
-| P1 | Host run archive (`FR-5.*`); event-richer TTY; optional follow-up turn **only** if the brief is unchanged and cost guard still applies |
-| P2 | Web UI, live quotes on the **coordinator** only |
+| P1 | Host run archive (`FR-5.*`); OTel traces + Jaeger UI (`FR-6.*`); event-richer TTY; optional follow-up turn **only** if the brief is unchanged and cost guard still applies |
+| P2 | Web UI, live quotes on the **coordinator** only, Prometheus via OTel collector |
 
 ## 6. Requirements
 
@@ -132,6 +132,17 @@ Self-hosted workspace dies with the container. OpenAI keeps session *items*, not
 | FR-5.3 | P1 | `outputs/allocation.json` and success memo only if the allocator ran as success | Cost-cancel and failed archives: `outcome` is not `success`; those files are omitted |
 | FR-5.4 | P1 | Allocator replay from an archived success folder matches original cents (`FR-3.1`) | Same function + same JSON + same spec version |
 
+### Observability (P1)
+
+App-side traces of **our** loop. Not a replacement for `runs/` or for **Kill**. OpenAI Agents dashboard traces are not the SoR.
+
+| ID | Pri | Requirement | Acceptance |
+|---|---|---|---|
+| FR-6.1 | P1 | If `OTEL_EXPORTER_OTLP_ENDPOINT` is set, export one trace per CLI invocation over OTLP | Jaeger (or any OTLP backend) shows a root span `harness.run` after a run; unset endpoint → no exporter, process still runs |
+| FR-6.2 | P1 | Spans cover intake, session/docker connect, and later research/cost/allocator/archive | Child spans named in [ARCHITECTURE.md](ARCHITECTURE.md) § Observability; `outcome` on the root span |
+| FR-6.3 | P1 | Local **Jaeger** UI to inspect traces | `docker compose` in `observability/` serves the UI; no API keys on span attributes |
+| FR-6.4 | P2 | Prometheus metrics via OTel collector (not scrape of the CLI) | Deferred; CLI remains a job, not a scrape target |
+
 ### Non-functionals
 
 | ID | Pri | Requirement |
@@ -141,6 +152,7 @@ Self-hosted workspace dies with the container. OpenAI keeps session *items*, not
 | NFR-2.1 | P0 | Cost: cancel at **100%** of `COST_BOUND_USD` using the estimate in [ARCHITECTURE.md](ARCHITECTURE.md) § Cost guard. *Assumption:* recorded usage can lag; a small overshoot after cancel is accepted and documented |
 | NFR-2.2 | P0 | Secrets: `OPENAI_API_KEY` never passed into the container; executor uses environment key only |
 | NFR-3.1 | P0 | Threat model: untrusted web/tool text in the sandbox; no extra credentials in the workspace; output is not an order |
+| NFR-3.2 | P1 | Span attributes must not include `OPENAI_API_KEY`, `OPENAI_EXECUTOR_API_KEY`, or `CODEX_API_KEY` |
 | NFR-4.1 | P1 | *Assumption:* no p95 latency SLO for a learning CLI; operator waits on the turn |
 
 ## 7. Success metrics
@@ -166,6 +178,7 @@ Self-hosted workspace dies with the container. OpenAI keeps session *items*, not
 | Regulatory misread as advice | Disclaimer on every memo; excluded from goals |
 | Container teardown wipes grounded JSON | P1 host snapshot (`ADR-006`); P0 still reads the live mount only |
 | Archive mistaken for a saved “portfolio” | `outcome` in meta; no allocation file on cancel (`FR-5.3`) |
+| Observability mistaken for Ground | Traces are inspect-only; dollars still from allocator + archive |
 
 ## 9. Phases
 
@@ -173,7 +186,7 @@ Self-hosted workspace dies with the container. OpenAI keeps session *items*, not
 |---|---|---|
 | 0 | CLI intake + env checks + session create + Docker executor connect (no research message) | Proves self-hosted loop |
 | 1 | Brief → universe → subagents → files → allocator → memo; cost guard | P0 complete |
-| 2 | Host run archive (`FR-5.*`); richer event log; optional same-brief follow-up | Operability; **Ground** survives teardown |
+| 2 | Host run archive (`FR-5.*`); OTel + Jaeger (`FR-6.*`); richer event log; optional same-brief follow-up | Operability; inspect runs without scraping the CLI |
 
 Sequencing: environment before agents (`ADR-001`); cost guard in the same phase as the first research send so an unbounded turn never exists. Archive after P0 so a cancelled turn is not blocked on disk I/O design, but **before** treating Docker teardown as safe.
 
